@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Benchmarks/Benchmarks.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/BaselineSolution/BaselineSolution.csproj" />
     <Project Path="src/DataGenerator/DataGenerator.csproj" />

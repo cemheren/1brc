@@ -114,6 +114,9 @@ The baseline solution is intentionally naive — single-threaded `StreamReader` 
 ```
 ├── 1brc.slnx                          # Solution file
 ├── README.md
+├── benchmarks/
+│   └── Benchmarks/                     # BenchmarkDotNet micro-benchmarks
+│       └── Program.cs
 ├── src/
 │   ├── DataGenerator/                  # Generates measurements.txt
 │   │   └── Program.cs
@@ -208,18 +211,22 @@ set DOTNET_EnableEventPipe=1
 
 ### 6. BenchmarkDotNet (for Micro-Benchmarks)
 
-You **can** use [BenchmarkDotNet](https://benchmarkdotnet.org/) in a separate project to compare parsing strategies:
+A scaffold project is included at `benchmarks/Benchmarks/` with example benchmarks comparing parsing strategies:
 
 ```bash
-dotnet new console -n ParsingBenchmarks -o benchmarks/ParsingBenchmarks
-cd benchmarks/ParsingBenchmarks
-dotnet add package BenchmarkDotNet
+dotnet run -c Release --project benchmarks/Benchmarks
 ```
 
-Useful for comparing e.g.:
-- `double.Parse()` vs hand-rolled decimal parsing
-- `string.IndexOf(';')` vs `Span<byte>` scanning
+This compares three approaches out of the box:
+- `string.Split()` — naive baseline
+- `IndexOf` + `Substring` — avoids Split's array allocation
+- `Span<byte>` hand-rolled parsing — zero allocation
+
+Add your own benchmarks to compare e.g.:
 - `Dictionary<string, T>` vs custom hash map
+- `FileStream` buffer sizes
+- `MemoryMappedFile` vs sequential reads
+- SIMD delimiter scanning
 
 ### Profiling Tips
 
