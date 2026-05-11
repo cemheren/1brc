@@ -180,7 +180,7 @@ dotnet-trace collect --duration 00:00:10 -- src/BaselineSolution/bin/Release/net
 Open the `.nettrace` file in:
 - **Visual Studio** → Diagnostics Tools (built-in) -- I find this not very useful in my testing. 
 - **[Speedscope](https://www.speedscope.app/)** → convert first: `dotnet-trace convert trace.nettrace --format speedscope` --didn't try. 
-- **PerfView** → Windows only, -- my personal choice. 
+- **[PerfView](https://github.com/microsoft/perfview/releases)** → Windows only, -- my personal choice. 
 
 ### 4. dotnet-gcdump (GC/Memory Analysis)
 
