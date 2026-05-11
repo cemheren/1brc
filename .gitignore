@@ -14,7 +14,7 @@ obj/
 *.sln.docstates
 
 ## Data files (too large for git)
-measurements.txt
+*.txt
 *.nettrace
 *.gcdump
 
