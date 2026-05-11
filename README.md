@@ -172,11 +172,9 @@ Capture a trace and view it in Visual Studio, PerfView, or Speedscope:
 # Install once
 dotnet tool install --global dotnet-trace
 
-# Collect a trace (attach to running process)
-dotnet-trace collect --process-id <PID> --output trace.nettrace
-
-# Or launch and trace in one step
-dotnet-trace collect -- dotnet run --project src/BaselineSolution -c Release -- measurements.txt
+# Build first, then trace the compiled binary directly
+dotnet build src/BaselineSolution -c Release
+dotnet-trace collect -- src/BaselineSolution/bin/Release/net9.0/BaselineSolution measurements.txt
 ```
 
 Open the `.nettrace` file in:
