@@ -18,6 +18,9 @@ obj/
 *.nettrace
 *.gcdump
 
+## Benchmark output
+BenchmarkDotNet.Artifacts/
+
 ## OS
 Thumbs.db
 .DS_Store
