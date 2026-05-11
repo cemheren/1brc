@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BaselineSolution/BaselineSolution.csproj" />
+    <Project Path="src/DataGenerator/DataGenerator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BaselineSolution.Tests/BaselineSolution.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,23 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+
+## IDE
+.vs/
+.vscode/
+*.sln.docstates
+
+## Data files (too large for git)
+measurements.txt
+*.nettrace
+*.gcdump
+
+## OS
+Thumbs.db
+.DS_Store
