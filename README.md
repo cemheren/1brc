@@ -174,7 +174,7 @@ dotnet tool install --global dotnet-trace
 
 # Build first, then trace the compiled binary directly
 dotnet build src/BaselineSolution -c Release
-dotnet-trace collect -- src/BaselineSolution/bin/Release/net9.0/BaselineSolution measurements.txt
+dotnet-trace collect --duration 00:00:10 -- src/BaselineSolution/bin/Release/net9.0/BaselineSolution measurements.txt
 ```
 
 Open the `.nettrace` file in:
