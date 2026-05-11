@@ -60,7 +60,7 @@ Write a C# program that:
 dotnet run --project src/DataGenerator -- 1000000000
 
 # Or generate a smaller file for testing
-dotnet run --project src/DataGenerator -- 1000000 small_measurements.txt
+dotnet run --project src/DataGenerator -- 20000000 small_measurements.txt
 ```
 
 ### Run the Baseline Solution

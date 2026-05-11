@@ -1,6 +1,6 @@
-﻿using BenchmarkDotNet.Attributes;
+﻿using System.Globalization;
+using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
-using System.Globalization;
 
 BenchmarkRunner.Run<ParsingBenchmarks>();
 
@@ -15,6 +15,12 @@ BenchmarkRunner.Run<ParsingBenchmarks>();
 ///   - Hash map implementations
 ///   - Buffer sizes for file I/O
 /// </summary>
+
+////You should see something like below: 
+////| Method | Mean | Error | StdDev | Median | Ratio | RatioSD | Gen0 | Gen1 | Allocated | Alloc Ratio |
+////| ----------------- | ---------:| ---------:| ---------:| ---------:| ------:| --------:| -------:| -------:| ----------:| ------------:|
+////| StringSplit | 387.6 ns | 1.89 ns | 1.68 ns | 387.3 ns | 1.00 | 0.01 | 0.1616 | 0.0005 | 1016 B | 1.00 |
+////| IndexOfSubstring | 323.1 ns | 24.73 ns | 72.90 ns | 377.4 ns | 0.83 | 0.19 | 0.0637 | - | 400 B | 0.39 |
 [MemoryDiagnoser]
 public class ParsingBenchmarks
 {

@@ -22,6 +22,10 @@ using (var reader = new StreamReader(inputFile))
         int semicolonIndex = line.IndexOf(';');
         if (semicolonIndex < 0) continue;
 
+        // Note(akhe): This is the first optimization we do in the default solution. Run the benchmarkdotnet solution to see the difference in these parsing methods.
+        //var parts = line.Split(';');
+        //result = (parts[0], double.Parse(parts[1], CultureInfo.InvariantCulture));
+
         var name = line[..semicolonIndex];
         var value = double.Parse(line.AsSpan(semicolonIndex + 1), CultureInfo.InvariantCulture);
 
