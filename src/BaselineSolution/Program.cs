@@ -13,13 +13,16 @@ if (!File.Exists(inputFile))
 
 var sw = Stopwatch.StartNew();
 
+const int threadCount = 4;
+
 var fileInfo = new FileInfo(inputFile);
 long fileSize = fileInfo.Length;
 
-var stats = new Dictionary<string, StationStats>();
-
 using var mmf = MemoryMappedFile.CreateFromFile(inputFile, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
 using var accessor = mmf.CreateViewAccessor(0, fileSize, MemoryMappedFileAccess.Read);
+
+// Each thread gets its own local dictionary — no locking needed
+var threadResults = new Dictionary<string, StationStats>[threadCount];
 
 unsafe
 {
@@ -28,58 +31,83 @@ unsafe
 
     try
     {
-        long pos = 0;
+        // Split file into chunks, aligning to line boundaries
+        var chunkBounds = new long[threadCount + 1];
+        chunkBounds[0] = 0;
+        chunkBounds[threadCount] = fileSize;
 
-        while (pos < fileSize)
+        for (int i = 1; i < threadCount; i++)
         {
-            // Find end of line
-            long lineStart = pos;
-            while (pos < fileSize && pointer[pos] != (byte)'\n')
-                pos++;
-
-            long lineEnd = pos;
-            if (pos < fileSize) pos++;
-
-            // Handle \r\n
-            if (lineEnd > lineStart && pointer[lineEnd - 1] == (byte)'\r')
-                lineEnd--;
-
-            if (lineEnd <= lineStart) continue;
-
-            // Find semicolon
-            long sepPos = lineStart;
-            while (sepPos < lineEnd && pointer[sepPos] != (byte)';')
-                sepPos++;
-
-            if (sepPos >= lineEnd) continue;
-
-            int nameLen = (int)(sepPos - lineStart);
-
-            // Parse the numeric value from raw bytes
-            double value = ParseDouble(pointer, sepPos + 1, lineEnd);
-
-            // Get or create the region name string (interned on first encounter)
-            var nameSpan = new ReadOnlySpan<byte>(pointer + lineStart, nameLen);
-            string name = Encoding.UTF8.GetString(nameSpan);
-
-            if (stats.TryGetValue(name, out var existing))
-            {
-                existing.Min = Math.Min(existing.Min, value);
-                existing.Max = Math.Max(existing.Max, value);
-                existing.Sum += value;
-                existing.Count++;
-            }
-            else
-            {
-                stats[name] = new StationStats
-                {
-                    Min = value,
-                    Max = value,
-                    Sum = value,
-                    Count = 1
-                };
-            }
+            long approx = fileSize * i / threadCount;
+            // Walk forward to the next newline so we don't split a line
+            while (approx < fileSize && pointer[approx] != (byte)'\n')
+                approx++;
+            if (approx < fileSize) approx++; // skip past the \n
+            chunkBounds[i] = approx;
         }
+
+        var tasks = new Task[threadCount];
+        for (int t = 0; t < threadCount; t++)
+        {
+            int threadIndex = t;
+            long start = chunkBounds[threadIndex];
+            long end = chunkBounds[threadIndex + 1];
+
+            tasks[t] = Task.Run(() =>
+            {
+                var localStats = new Dictionary<string, StationStats>();
+                long pos = start;
+
+                while (pos < end)
+                {
+                    long lineStart = pos;
+                    while (pos < end && pointer[pos] != (byte)'\n')
+                        pos++;
+
+                    long lineEnd = pos;
+                    if (pos < end) pos++;
+
+                    if (lineEnd > lineStart && pointer[lineEnd - 1] == (byte)'\r')
+                        lineEnd--;
+
+                    if (lineEnd <= lineStart) continue;
+
+                    long sepPos = lineStart;
+                    while (sepPos < lineEnd && pointer[sepPos] != (byte)';')
+                        sepPos++;
+
+                    if (sepPos >= lineEnd) continue;
+
+                    int nameLen = (int)(sepPos - lineStart);
+                    double value = ParseDouble(pointer, sepPos + 1, lineEnd);
+
+                    var nameSpan = new ReadOnlySpan<byte>(pointer + lineStart, nameLen);
+                    string name = Encoding.UTF8.GetString(nameSpan);
+
+                    if (localStats.TryGetValue(name, out var existing))
+                    {
+                        existing.Min = Math.Min(existing.Min, value);
+                        existing.Max = Math.Max(existing.Max, value);
+                        existing.Sum += value;
+                        existing.Count++;
+                    }
+                    else
+                    {
+                        localStats[name] = new StationStats
+                        {
+                            Min = value,
+                            Max = value,
+                            Sum = value,
+                            Count = 1
+                        };
+                    }
+                }
+
+                threadResults[threadIndex] = localStats;
+            });
+        }
+
+        Task.WaitAll(tasks);
     }
     finally
     {
@@ -87,8 +115,34 @@ unsafe
     }
 }
 
+// Merge thread-local results
+var merged = new Dictionary<string, StationStats>();
+foreach (var localStats in threadResults)
+{
+    foreach (var (name, s) in localStats)
+    {
+        if (merged.TryGetValue(name, out var existing))
+        {
+            existing.Min = Math.Min(existing.Min, s.Min);
+            existing.Max = Math.Max(existing.Max, s.Max);
+            existing.Sum += s.Sum;
+            existing.Count += s.Count;
+        }
+        else
+        {
+            merged[name] = new StationStats
+            {
+                Min = s.Min,
+                Max = s.Max,
+                Sum = s.Sum,
+                Count = s.Count
+            };
+        }
+    }
+}
+
 // Sort alphabetically and format output
-var sorted = stats.OrderBy(kv => kv.Key, StringComparer.Ordinal);
+var sorted = new SortedDictionary<string, StationStats>(merged);
 
 var results = sorted.Select(kv =>
 {
