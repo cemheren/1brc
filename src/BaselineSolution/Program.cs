@@ -184,26 +184,15 @@ class StationStats
 /// </summary>
 unsafe class ByteKeyDictionary
 {
-    private const int InitialCapacity = 256; // plenty for ~55 regions
-    private const double LoadFactor = 0.7;
+    // 256 slots for 55 regions (no need to resize) 
+    private const int Capacity = 256;
 
-    private Entry[] _entries;
-    private int _count;
-
-    public ByteKeyDictionary()
-    {
-        _entries = new Entry[InitialCapacity];
-        _count = 0;
-    }
+    private readonly Entry[] _entries = new Entry[Capacity];
 
     public void AddOrUpdate(byte* keyPtr, int keyLen, double value)
     {
-        if (_count >= (int)(_entries.Length * LoadFactor))
-            Resize();
-
         uint hash = FnvHash(keyPtr, keyLen);
-        int mask = _entries.Length - 1;
-        int idx = (int)(hash & (uint)mask);
+        int idx = (int)(hash & (Capacity - 1));
 
         while (true)
         {
@@ -219,7 +208,6 @@ unsafe class ByteKeyDictionary
                 entry.Max = value;
                 entry.Sum = value;
                 entry.Count = 1;
-                _count++;
                 return;
             }
 
@@ -234,7 +222,7 @@ unsafe class ByteKeyDictionary
                 return;
             }
 
-            idx = (idx + 1) & mask;
+            idx = (idx + 1) & (Capacity - 1);
         }
     }
 
@@ -243,27 +231,6 @@ unsafe class ByteKeyDictionary
         for (int i = 0; i < _entries.Length; i++)
             if (_entries[i].Key != null)
                 yield return _entries[i];
-    }
-
-    private void Resize()
-    {
-        var old = _entries;
-        _entries = new Entry[old.Length * 2];
-        _count = 0;
-        int mask = _entries.Length - 1;
-
-        for (int i = 0; i < old.Length; i++)
-        {
-            if (old[i].Key == null) continue;
-            ref var src = ref old[i];
-
-            int idx = (int)(src.Hash & (uint)mask);
-            while (_entries[idx].Key != null)
-                idx = (idx + 1) & mask;
-
-            _entries[idx] = src;
-            _count++;
-        }
     }
 
     private static uint FnvHash(byte* data, int len)
