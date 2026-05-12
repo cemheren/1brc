@@ -21,7 +21,6 @@ long fileSize = fileInfo.Length;
 using var mmf = MemoryMappedFile.CreateFromFile(inputFile, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
 using var accessor = mmf.CreateViewAccessor(0, fileSize, MemoryMappedFileAccess.Read);
 
-// Each thread gets its own local ByteKeyDictionary — no locking, no string allocations
 var threadResults = new ByteKeyDictionary[threadCount];
 
 unsafe
@@ -45,14 +44,15 @@ unsafe
             chunkBounds[i] = approx;
         }
 
-        var tasks = new Task[threadCount];
+        // Use raw threads instead of Task.Run to avoid thread pool overhead
+        var threads = new Thread[threadCount];
         for (int t = 0; t < threadCount; t++)
         {
             int threadIndex = t;
             long start = chunkBounds[threadIndex];
             long end = chunkBounds[threadIndex + 1];
 
-            tasks[t] = Task.Run(() =>
+            threads[t] = new Thread(() =>
             {
                 var localStats = new ByteKeyDictionary();
                 long pos = start;
@@ -85,9 +85,11 @@ unsafe
 
                 threadResults[threadIndex] = localStats;
             });
+            threads[t].Start();
         }
 
-        Task.WaitAll(tasks);
+        for (int t = 0; t < threadCount; t++)
+            threads[t].Join();
     }
     finally
     {
@@ -184,7 +186,6 @@ class StationStats
 /// </summary>
 unsafe class ByteKeyDictionary
 {
-    // 256 slots for 55 regions (no need to resize) 
     private const int Capacity = 256;
 
     private readonly Entry[] _entries = new Entry[Capacity];
@@ -200,10 +201,10 @@ unsafe class ByteKeyDictionary
 
             if (entry.Key == null)
             {
-                // Empty slot — insert
                 entry.Key = new byte[keyLen];
                 new ReadOnlySpan<byte>(keyPtr, keyLen).CopyTo(entry.Key);
                 entry.Hash = hash;
+                entry.KeyLen = keyLen;
                 entry.Min = value;
                 entry.Max = value;
                 entry.Sum = value;
@@ -211,15 +212,17 @@ unsafe class ByteKeyDictionary
                 return;
             }
 
-            if (entry.Hash == hash && entry.Key.Length == keyLen &&
-                new ReadOnlySpan<byte>(keyPtr, keyLen).SequenceEqual(entry.Key))
+            // Fast path: compare hash + length before expensive byte comparison
+            if (entry.Hash == hash && entry.KeyLen == keyLen)
             {
-                // Found — update
-                if (value < entry.Min) entry.Min = value;
-                if (value > entry.Max) entry.Max = value;
-                entry.Sum += value;
-                entry.Count++;
-                return;
+                if (new ReadOnlySpan<byte>(keyPtr, keyLen).SequenceEqual(entry.Key))
+                {
+                    if (value < entry.Min) entry.Min = value;
+                    if (value > entry.Max) entry.Max = value;
+                    entry.Sum += value;
+                    entry.Count++;
+                    return;
+                }
             }
 
             idx = (idx + 1) & (Capacity - 1);
@@ -248,6 +251,7 @@ unsafe class ByteKeyDictionary
     {
         public byte[]? Key;
         public uint Hash;
+        public int KeyLen;
         public double Min;
         public double Max;
         public double Sum;
