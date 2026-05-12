@@ -143,34 +143,20 @@ return 0;
 [MethodImpl(MethodImplOptions.NoInlining)]
 static unsafe double ParseDouble(byte* data, long start, long end)
 {
-    double result = 0;
-    double fraction = 0;
-    double divisor = 1;
-    bool hasDot = false;
+    // Parse all digits as one integer, skipping the dot, then * 0.01
+    // Works for any number of digits before the dot (always 2 after)
+    byte* p = data + start;
+    int len = (int)(end - start);
 
-    for (long i = start; i < end; i++)
+    long value = p[0] - '0';
+    for (int i = 1; i < len; i++)
     {
-        byte b = data[i];
-        if (b == (byte)'.')
-        {
-            hasDot = true;
-            continue;
-        }
-        if (b < (byte)'0' || b > (byte)'9') continue;
-
-        int digit = b - '0';
-        if (hasDot)
-        {
-            divisor *= 10;
-            fraction += digit / divisor;
-        }
-        else
-        {
-            result = result * 10 + digit;
-        }
+        byte b = p[i];
+        if (b != (byte)'.')
+            value = value * 10 + (b - '0');
     }
 
-    return result + fraction;
+    return value * 0.01;
 }
 
 class StationStats
