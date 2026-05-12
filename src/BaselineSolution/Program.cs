@@ -21,8 +21,8 @@ long fileSize = fileInfo.Length;
 using var mmf = MemoryMappedFile.CreateFromFile(inputFile, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
 using var accessor = mmf.CreateViewAccessor(0, fileSize, MemoryMappedFileAccess.Read);
 
-// Each thread gets its own local dictionary — no locking needed
-var threadResults = new Dictionary<string, StationStats>[threadCount];
+// Each thread gets its own local ByteKeyDictionary — no locking, no string allocations
+var threadResults = new ByteKeyDictionary[threadCount];
 
 unsafe
 {
@@ -39,10 +39,9 @@ unsafe
         for (int i = 1; i < threadCount; i++)
         {
             long approx = fileSize * i / threadCount;
-            // Walk forward to the next newline so we don't split a line
             while (approx < fileSize && pointer[approx] != (byte)'\n')
                 approx++;
-            if (approx < fileSize) approx++; // skip past the \n
+            if (approx < fileSize) approx++;
             chunkBounds[i] = approx;
         }
 
@@ -55,7 +54,7 @@ unsafe
 
             tasks[t] = Task.Run(() =>
             {
-                var localStats = new Dictionary<string, StationStats>();
+                var localStats = new ByteKeyDictionary();
                 long pos = start;
 
                 while (pos < end)
@@ -81,26 +80,7 @@ unsafe
                     int nameLen = (int)(sepPos - lineStart);
                     double value = ParseDouble(pointer, sepPos + 1, lineEnd);
 
-                    var nameSpan = new ReadOnlySpan<byte>(pointer + lineStart, nameLen);
-                    string name = Encoding.UTF8.GetString(nameSpan);
-
-                    if (localStats.TryGetValue(name, out var existing))
-                    {
-                        existing.Min = Math.Min(existing.Min, value);
-                        existing.Max = Math.Max(existing.Max, value);
-                        existing.Sum += value;
-                        existing.Count++;
-                    }
-                    else
-                    {
-                        localStats[name] = new StationStats
-                        {
-                            Min = value,
-                            Max = value,
-                            Sum = value,
-                            Count = 1
-                        };
-                    }
+                    localStats.AddOrUpdate(pointer + lineStart, nameLen, value);
                 }
 
                 threadResults[threadIndex] = localStats;
@@ -115,36 +95,35 @@ unsafe
     }
 }
 
-// Merge thread-local results
-var merged = new Dictionary<string, StationStats>();
+// Merge thread-local results, converting byte keys to strings only once
+var merged = new SortedDictionary<string, StationStats>(StringComparer.Ordinal);
 foreach (var localStats in threadResults)
 {
-    foreach (var (name, s) in localStats)
+    foreach (var entry in localStats.GetEntries())
     {
+        string name = Encoding.UTF8.GetString(entry.Key);
         if (merged.TryGetValue(name, out var existing))
         {
-            existing.Min = Math.Min(existing.Min, s.Min);
-            existing.Max = Math.Max(existing.Max, s.Max);
-            existing.Sum += s.Sum;
-            existing.Count += s.Count;
+            existing.Min = Math.Min(existing.Min, entry.Min);
+            existing.Max = Math.Max(existing.Max, entry.Max);
+            existing.Sum += entry.Sum;
+            existing.Count += entry.Count;
         }
         else
         {
             merged[name] = new StationStats
             {
-                Min = s.Min,
-                Max = s.Max,
-                Sum = s.Sum,
-                Count = s.Count
+                Min = entry.Min,
+                Max = entry.Max,
+                Sum = entry.Sum,
+                Count = entry.Count
             };
         }
     }
 }
 
-// Sort alphabetically and format output
-var sorted = new SortedDictionary<string, StationStats>(merged);
-
-var results = sorted.Select(kv =>
+// Format output
+var results = merged.Select(kv =>
 {
     var s = kv.Value;
     var mean = s.Sum / s.Count;
@@ -196,4 +175,115 @@ class StationStats
     public double Max;
     public double Sum;
     public long Count;
+}
+
+/// <summary>
+/// Open-addressing hash map keyed on raw byte spans.
+/// Avoids all string allocation during the hot loop.
+/// Keys are copied once on first insert; lookups compare bytes directly.
+/// </summary>
+unsafe class ByteKeyDictionary
+{
+    private const int InitialCapacity = 256; // plenty for ~55 regions
+    private const double LoadFactor = 0.7;
+
+    private Entry[] _entries;
+    private int _count;
+
+    public ByteKeyDictionary()
+    {
+        _entries = new Entry[InitialCapacity];
+        _count = 0;
+    }
+
+    public void AddOrUpdate(byte* keyPtr, int keyLen, double value)
+    {
+        if (_count >= (int)(_entries.Length * LoadFactor))
+            Resize();
+
+        uint hash = FnvHash(keyPtr, keyLen);
+        int mask = _entries.Length - 1;
+        int idx = (int)(hash & (uint)mask);
+
+        while (true)
+        {
+            ref var entry = ref _entries[idx];
+
+            if (entry.Key == null)
+            {
+                // Empty slot — insert
+                entry.Key = new byte[keyLen];
+                new ReadOnlySpan<byte>(keyPtr, keyLen).CopyTo(entry.Key);
+                entry.Hash = hash;
+                entry.Min = value;
+                entry.Max = value;
+                entry.Sum = value;
+                entry.Count = 1;
+                _count++;
+                return;
+            }
+
+            if (entry.Hash == hash && entry.Key.Length == keyLen &&
+                new ReadOnlySpan<byte>(keyPtr, keyLen).SequenceEqual(entry.Key))
+            {
+                // Found — update
+                if (value < entry.Min) entry.Min = value;
+                if (value > entry.Max) entry.Max = value;
+                entry.Sum += value;
+                entry.Count++;
+                return;
+            }
+
+            idx = (idx + 1) & mask;
+        }
+    }
+
+    public IEnumerable<Entry> GetEntries()
+    {
+        for (int i = 0; i < _entries.Length; i++)
+            if (_entries[i].Key != null)
+                yield return _entries[i];
+    }
+
+    private void Resize()
+    {
+        var old = _entries;
+        _entries = new Entry[old.Length * 2];
+        _count = 0;
+        int mask = _entries.Length - 1;
+
+        for (int i = 0; i < old.Length; i++)
+        {
+            if (old[i].Key == null) continue;
+            ref var src = ref old[i];
+
+            int idx = (int)(src.Hash & (uint)mask);
+            while (_entries[idx].Key != null)
+                idx = (idx + 1) & mask;
+
+            _entries[idx] = src;
+            _count++;
+        }
+    }
+
+    private static uint FnvHash(byte* data, int len)
+    {
+        uint hash = 2166136261;
+        for (int i = 0; i < len; i++)
+        {
+            hash ^= data[i];
+            hash *= 16777619;
+        }
+        return hash;
+    }
+
+    public struct Entry
+    {
+        public byte[]? Key;
+        public uint Hash;
+        public double Min;
+        public double Max;
+        public double Sum;
+        public long Count;
+    }
 }
