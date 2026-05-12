@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO.MemoryMappedFiles;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 string inputFile = args.Length > 0 ? args[0] : "measurements.txt";
@@ -139,6 +140,7 @@ Console.WriteLine("}");
 Console.Error.WriteLine($"Processed in {sw.Elapsed.TotalSeconds:F2}s");
 return 0;
 
+[MethodImpl(MethodImplOptions.NoInlining)]
 static unsafe double ParseDouble(byte* data, long start, long end)
 {
     double result = 0;
